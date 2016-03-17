@@ -170,6 +170,8 @@ func (fs *FileSystem) Append(data io.Reader, p Path, buffersize int) (bool, erro
 	}
 
 	req, _ = http.NewRequest("POST", u.String(), data)
+	req.Header.Set("X-Auth-Token", fs.AuthToken.AccessToken)
+	req.Header.Set("Content-Type", "application/octet-stream")
 	rsp, err = fs.client.Do(req)
 	if err != nil {
 		return false, err
@@ -197,6 +199,8 @@ func (fs *FileSystem) Concat(target Path, sources []string) (bool, error) {
 	params["sources"] = strings.Join(sources, ",")
 
 	req, err := fs.BuildRequest("POST", &target, &params)
+	req.Header.Set("X-Auth-Token", fs.AuthToken.AccessToken)
+	req.Header.Set("Content-Type", "application/octet-stream")
 	if err != nil {
 		return false, err
 	}
