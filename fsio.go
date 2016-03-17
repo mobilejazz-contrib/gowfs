@@ -1,6 +1,7 @@
 package gowfs
 
 import "fmt"
+
 import "os"
 import "io"
 import "strconv"
@@ -48,14 +49,13 @@ func (fs *FileSystem) Create(
 		params["buffersize"] = strconv.FormatInt(int64(buffersize), 10)
 	}
 
-	u, err := buildRequestUrl(fs.Config, &p, &params)
+	req, err := fs.BuildRequest("PUT", &p, &params)
 	if err != nil {
 		return false, err
 	}
 
 	// take over default transport to avoid redirect
 	tr := &http.Transport{}
-	req, _ := http.NewRequest("PUT", u.String(), nil)
 	rsp, err := tr.RoundTrip(req)
 	if err != nil {
 		return false, err
@@ -63,12 +63,15 @@ func (fs *FileSystem) Create(
 
 	// extract returned url in header.
 	loc := rsp.Header.Get("Location")
-	u, err = url.ParseRequestURI(loc)
+	u, err := url.ParseRequestURI(loc)
 	if err != nil {
 		return false, fmt.Errorf("FileSystem.Create(%s) - invalid redirect URL from server: %s", u, err.Error())
 	}
 
+	fmt.Println("\nURL: " + u.String())
 	req, _ = http.NewRequest("PUT", u.String(), data)
+	req.Header.Set("X-Auth-Token", fs.AuthToken.AccessToken)
+	req.Header.Set("Content-Type", "application/octet-stream")
 	rsp, err = fs.client.Do(req)
 	if err != nil {
 		fmt.Errorf("FileSystem.Create(%s) - bad url: %s", loc, err.Error())
@@ -78,6 +81,7 @@ func (fs *FileSystem) Create(
 	if rsp.StatusCode != http.StatusCreated {
 		defer rsp.Body.Close()
 		_, err = responseToHdfsData(rsp)
+
 		if err != nil {
 			return false, err
 		}
@@ -109,12 +113,11 @@ func (fs *FileSystem) Open(p Path, offset, length int64, buffSize int) (io.ReadC
 		params["buffersize"] = strconv.Itoa(buffSize)
 	}
 
-	u, err := buildRequestUrl(fs.Config, &p, &params)
+	req, err := fs.BuildRequest("GET", &p, &params)
 	if err != nil {
 		return nil, err
 	}
 
-	req, _ := http.NewRequest("GET", u.String(), nil)
 	rsp, err := fs.client.Do(req)
 	if err != nil {
 		return nil, err
@@ -147,14 +150,13 @@ func (fs *FileSystem) Append(data io.Reader, p Path, buffersize int) (bool, erro
 		params["buffersize"] = strconv.FormatInt(int64(buffersize), 10)
 	}
 
-	u, err := buildRequestUrl(fs.Config, &p, &params)
+	req, err := fs.BuildRequest("POST", &p, &params)
 	if err != nil {
 		return false, err
 	}
 
 	// take over default transport to avoid redirect
 	tr := &http.Transport{}
-	req, _ := http.NewRequest("POST", u.String(), nil)
 	rsp, err := tr.RoundTrip(req)
 	if err != nil {
 		return false, err
@@ -162,7 +164,7 @@ func (fs *FileSystem) Append(data io.Reader, p Path, buffersize int) (bool, erro
 
 	// extract returned url in header.
 	loc := rsp.Header.Get("Location")
-	u, err = url.ParseRequestURI(loc)
+	u, err := url.ParseRequestURI(loc)
 	if err != nil {
 		return false, fmt.Errorf("Append(%s) - did not receive a valid URL from server.", loc)
 	}
@@ -194,12 +196,11 @@ func (fs *FileSystem) Concat(target Path, sources []string) (bool, error) {
 	params := map[string]string{"op": OP_CONCAT}
 	params["sources"] = strings.Join(sources, ",")
 
-	u, err := buildRequestUrl(fs.Config, &target, &params)
+	req, err := fs.BuildRequest("POST", &target, &params)
 	if err != nil {
 		return false, err
 	}
 
-	req, _ := http.NewRequest("POST", u.String(), nil)
 	rsp, err := fs.client.Do(req)
 	if err != nil {
 		return false, err
@@ -210,7 +211,7 @@ func (fs *FileSystem) Concat(target Path, sources []string) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		return false, fmt.Errorf("Concat(%s) - File not concatenated.  Server returned status %v", u.String(), rsp.StatusCode)
+		return false, fmt.Errorf("Concat(%s) - File not concatenated.  Server returned status %v", target, rsp.StatusCode)
 	}
 	return true, nil
 }

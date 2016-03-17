@@ -17,6 +17,9 @@ type Configuration struct {
 	DisableCompression    bool
 	ResponseHeaderTimeout time.Duration
 	MaxIdleConnsPerHost   int
+	AuthServer            string
+	Username              string
+	Password              string
 }
 
 func NewConfiguration() *Configuration {

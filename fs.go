@@ -5,7 +5,12 @@ See https://github.com/vladimirvivien/gowfs.
 */
 package gowfs
 
-import "encoding/json"
+import (
+	"crypto/tls"
+	"encoding/json"
+	"fmt"
+	"strings"
+)
 import "net"
 import "net/http"
 import "net/url"
@@ -41,8 +46,16 @@ func µ(v ...interface{}) []interface{} {
 
 // This type maps fields and functions to HDFS's FileSystem class.
 type FileSystem struct {
-	Config Configuration
-	client http.Client
+	Config    Configuration
+	client    http.Client
+	AuthToken OAuthToken
+}
+
+type OAuthToken struct {
+	AccessToken  string `json:"access_token"`
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int32  `json:"expires_in"`
+	RefreshToken string `json:"refresh_token"`
 }
 
 func NewFileSystem(conf Configuration) (*FileSystem, error) {
@@ -63,6 +76,35 @@ func NewFileSystem(conf Configuration) (*FileSystem, error) {
 			MaxIdleConnsPerHost: conf.MaxIdleConnsPerHost,
 		},
 	}
+
+	//Get the oauth token
+	url := conf.AuthServer + "/cosmos-auth/v1/token"
+
+	payload := strings.NewReader("grant_type=password&username=" + conf.Username + "&password=" + conf.Password)
+
+	tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+	client := &http.Client{Transport: tr}
+	req, _ := http.NewRequest("POST", url, payload)
+	req.Header.Add("cache-control", "no-cache")
+	req.Header.Add("content-type", "application/x-www-form-urlencoded")
+
+	res, err := client.Do(req)
+	if err != nil {
+		_ = fmt.Errorf("Auth error %s", err.Error())
+		return fs, err
+	}
+
+	defer res.Body.Close()
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		_ = fmt.Errorf("Auth error %s", err.Error())
+		return fs, err
+	}
+
+	var data OAuthToken
+	json.Unmarshal(body, &data)
+	fs.AuthToken = data
+
 	return fs, nil
 }
 
@@ -93,6 +135,20 @@ func buildRequestUrl(conf Configuration, p *Path, params *map[string]string) (*u
 	u.RawQuery = q.Encode()
 
 	return u, nil
+}
+
+//BuildRequest builds a request
+func (fs *FileSystem) BuildRequest(action string, p *Path, params *map[string]string) (*http.Request, error) {
+	u, err := buildRequestUrl(fs.Config, p, params)
+	if err != nil {
+		return nil, err
+	}
+
+	// take over default transport to avoid redirect
+	req, _ := http.NewRequest("PUT", u.String(), nil)
+	req.Header.Set("X-Auth-Token", fs.AuthToken.AccessToken)
+
+	return req, nil
 }
 
 func makeHdfsData(data []byte) (HdfsJsonData, error) {
